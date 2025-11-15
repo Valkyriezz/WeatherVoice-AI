@@ -1,0 +1,8 @@
+{
+  "name": "Weather Chatbot",
+  "description": "A weather-based activity suggestion chatbot that provides recommendations based on your local forecast. It features voice input and real-time weather data.",
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone"
+  ]
+}
