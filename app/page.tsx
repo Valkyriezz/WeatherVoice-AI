@@ -1,107 +1,162 @@
+"use client";
 
-'use client';
+import { useState } from "react";
+import VoiceInput from "./components/VoiceInput";
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Chat } from '@google/genai';
-import { Message, Weather } from './types';
-import Header from './components/Header';
-import MessageList from './components/MessageList';
-import ChatInput from './components/ChatInput';
-import { fetchWeatherByCoords } from './services/weatherService';
-import { createChatSession, generateInitialMessage, generateChatMessage } from './services/geminiService';
+export default function Home() {
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<
+    { role: "user" | "bot"; text: string }[]
+  >([]);
 
-const Page: React.FC = () => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [weather, setWeather] = useState<Weather | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [chat, setChat] = useState<Chat | null>(null);
+  // Location state
+  const [lat, setLat] = useState(35.6895); // Tokyo default
+  const [lon, setLon] = useState(139.6917);
+  const [theme, setTheme] = useState("general");
 
-  const addMessage = (text: string, sender: 'user' | 'bot') => {
-    const newMessage: Message = {
-      id: `${Date.now()}-${Math.random()}`,
-      text,
-      sender,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
-    setMessages((prev) => [...prev, newMessage]);
-  };
+  // -------------------------
+  // Japanese Text-To-Speech
+  // -------------------------
+  function speakJA(text: string) {
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = "ja-JP";
+    speechSynthesis.speak(utter);
+  }
 
-  useEffect(() => {
-    try {
-      const newChat = createChatSession();
-      setChat(newChat);
-    } catch (err: any) {
-      console.error("Initialization Error:", err);
-      const errorMessage = "Failed to initialize chat session. Please ensure the API key is configured correctly in your environment.";
-      setError(errorMessage);
-      addMessage(errorMessage, 'bot');
-      setIsLoading(false);
-    }
-  }, []);
-
-  const getInitialData = useCallback(async () => {
-      if (!chat) return;
-
-      setIsLoading(true);
-      setError(null);
-      
-      try {
-        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
-        });
-        const { latitude, longitude } = position.coords;
-        const weatherData = await fetchWeatherByCoords(latitude, longitude);
-        setWeather(weatherData);
-        
-        const initialBotMessage = await generateInitialMessage(chat, weatherData);
-        addMessage(initialBotMessage, 'bot');
-
-      } catch (err: any) {
-        let errorMessage = 'Could not fetch location or weather. Please allow location access and refresh, or tell me your city.';
-        if (err.code === 1) { // PERMISSION_DENIED
-            errorMessage = 'Location access denied. Please tell me your city to get weather-based suggestions.';
-        }
-        setError(errorMessage);
-        addMessage(errorMessage, 'bot');
-      } finally {
-        setIsLoading(false);
-      }
-  }, [chat]);
-
-  useEffect(() => {
-    if (chat) {
-      getInitialData();
-    }
-  }, [chat, getInitialData]);
-
-  const handleSendMessage = async (userMessageText: string) => {
-    if (!chat || !weather) {
-      addMessage("Sorry, the chat is not ready yet. Please wait for initialization.", 'bot');
+  // -------------------------
+  // Get user location
+  // -------------------------
+  function getLocation() {
+    if (!navigator.geolocation) {
+      alert("Geolocation not supported");
       return;
     }
-    
-    addMessage(userMessageText, 'user');
-    setIsLoading(true);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLat(pos.coords.latitude);
+        setLon(pos.coords.longitude);
+      },
+      () => alert("Failed to get location")
+    );
+  }
+
+  // -------------------------
+  // Send message to AI + Weather API
+  // -------------------------
+  async function sendMessage() {
+    if (!input.trim()) return;
+
+    // Add user bubble immediately
+    setMessages((prev) => [...prev, { role: "user", text: input }]);
 
     try {
-      const botResponseText = await generateChatMessage(chat, userMessageText, weather);
-      addMessage(botResponseText, 'bot');
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: input, lat, lon, theme }),
+      });
+
+      console.log("API STATUS:", res.status, res.statusText);
+      const raw = await res.text();
+      console.log("API RAW BODY:", raw);
+
+      // If response is NOT JSON, show error
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch (e) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "bot",
+            text: "❌ API returned invalid JSON. Check server logs.",
+          },
+        ]);
+        return;
+      }
+
+      // Add bot reply
+      setMessages((prev) => [...prev, { role: "bot", text: data.reply }]);
+
+      speakJA(data.reply);
     } catch (err) {
-      console.error("Gemini API error:", err);
-      addMessage("Sorry, I'm having trouble connecting. Please try again later.", 'bot');
-    } finally {
-      setIsLoading(false);
+      console.error("FETCH ERROR:", err);
+      setMessages((prev) => [
+        ...prev,
+        { role: "bot", text: "❌ Request failed. Check server terminal." },
+      ]);
     }
-  };
+
+    setInput("");
+  }
 
   return (
-    <div className="h-screen w-screen bg-gray-100 flex flex-col font-sans antialiased">
-        <Header />
-        <MessageList messages={messages} isLoading={isLoading} />
-        <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
-    </div>
-  );
-};
+    <main style={{ padding: 20, maxWidth: 600, margin: "0 auto" }}>
+      <h1>🌤️ Weather + Gemini Voice Chatbot</h1>
 
-export default Page;
+      {/* Voice Input Component */}
+      <VoiceInput onResult={(text) => setInput(text)} />
+
+      {/* Get Location Button */}
+      <button onClick={getLocation} style={{ marginTop: 10 }}>
+        📍 Get My Location
+      </button>
+      <div style={{ marginTop: 20 }}>
+        <label style={{ marginRight: 10 }}>Select Theme:</label>
+
+        <select
+          value={theme}
+          onChange={(e) => setTheme(e.target.value)}
+          style={{ padding: 8 }}
+        >
+          <option value="general">General</option>
+          <option value="travel">Travel</option>
+          <option value="fashion">Fashion</option>
+          <option value="sports">Sports</option>
+          <option value="music">Music</option>
+          <option value="agriculture">Agriculture</option>
+          <option value="outings">Outings</option>
+        </select>
+      </div>
+
+      {/* Text Input */}
+      <div style={{ marginTop: 15 }}>
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="質問を書いてください…"
+          style={{
+            padding: 10,
+            width: "75%",
+            marginRight: 8,
+            borderRadius: 6,
+            border: "1px solid #ccc",
+          }}
+        />
+
+        <button onClick={sendMessage}>Send</button>
+      </div>
+
+      {/* Chat Bubbles */}
+      <div style={{ marginTop: 30 }}>
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            style={{
+              padding: "10px 14px",
+              margin: "8px 0",
+              maxWidth: "75%",
+              borderRadius: 10,
+              background: m.role === "user" ? "#DCF8C6" : "#E8E8E8",
+              marginLeft: m.role === "user" ? "auto" : "0",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {m.text}
+          </div>
+        ))}
+      </div>
+    </main>
+  );
+}
