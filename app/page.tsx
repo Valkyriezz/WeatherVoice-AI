@@ -27,17 +27,24 @@ export default function Home() {
   // Get user location
   // -------------------------
   function getLocation() {
+    console.log("📍 getLocation() called");
+
     if (!navigator.geolocation) {
-      alert("Geolocation not supported");
+      alert("Geolocation not supported in this browser.");
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        console.log("✅ SUCCESS: ", pos.coords);
         setLat(pos.coords.latitude);
         setLon(pos.coords.longitude);
+        alert("Location updated!");
       },
-      () => alert("Failed to get location")
+      (err) => {
+        console.error("❌ ERROR:", err);
+        alert("Failed to get location: " + err.message);
+      }
     );
   }
 
@@ -47,7 +54,18 @@ export default function Home() {
   async function sendMessage() {
     if (!input.trim()) return;
 
-    // Add user bubble immediately
+    // Auto-refresh location
+    await new Promise<void>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setLat(pos.coords.latitude);
+          setLon(pos.coords.longitude);
+          resolve();
+        },
+        () => resolve()
+      );
+    });
+
     setMessages((prev) => [...prev, { role: "user", text: input }]);
 
     try {
@@ -57,31 +75,12 @@ export default function Home() {
         body: JSON.stringify({ message: input, lat, lon, theme }),
       });
 
-      console.log("API STATUS:", res.status, res.statusText);
       const raw = await res.text();
-      console.log("API RAW BODY:", raw);
+      let data = JSON.parse(raw);
 
-      // If response is NOT JSON, show error
-      let data;
-      try {
-        data = JSON.parse(raw);
-      } catch (e) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "bot",
-            text: "❌ API returned invalid JSON. Check server logs.",
-          },
-        ]);
-        return;
-      }
-
-      // Add bot reply
       setMessages((prev) => [...prev, { role: "bot", text: data.reply }]);
-
       speakJA(data.reply);
     } catch (err) {
-      console.error("FETCH ERROR:", err);
       setMessages((prev) => [
         ...prev,
         { role: "bot", text: "❌ Request failed. Check server terminal." },
