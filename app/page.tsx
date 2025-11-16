@@ -3,83 +3,111 @@
 import { useState } from "react";
 import VoiceInput from "./components/VoiceInput";
 
+type ChatMessage = {
+  role: "user" | "bot";
+  text: string;
+};
+
 export default function Home() {
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<
-    { role: "user" | "bot"; text: string }[]
-  >([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
 
-  // Location state
-  const [lat, setLat] = useState(35.6895); // Tokyo default
-  const [lon, setLon] = useState(139.6917);
-  const [theme, setTheme] = useState("general");
+  // Location
+  const [lat, setLat] = useState<number>(35.6895);
+  const [lon, setLon] = useState<number>(139.6917);
+
+  const [theme, setTheme] = useState<string>("general");
 
   // -------------------------
-  // Japanese Text-To-Speech
+  // Japanese TTS
   // -------------------------
   function speakJA(text: string) {
+    if (typeof window === "undefined") return;
+
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = "ja-JP";
-    speechSynthesis.speak(utter);
+
+    window.speechSynthesis.cancel(); // Prevent overlapping voices
+    window.speechSynthesis.speak(utter);
   }
 
   // -------------------------
-  // Get user location
+  // Get location
   // -------------------------
   function getLocation() {
-    console.log("📍 getLocation() called");
-
-    if (!navigator.geolocation) {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
       alert("Geolocation not supported in this browser.");
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        console.log("✅ SUCCESS: ", pos.coords);
         setLat(pos.coords.latitude);
         setLon(pos.coords.longitude);
         alert("Location updated!");
       },
-      (err) => {
-        console.error("❌ ERROR:", err);
-        alert("Failed to get location: " + err.message);
-      }
+      (err) => alert("Failed to get location: " + err.message)
     );
   }
 
   // -------------------------
-  // Send message to AI + Weather API
+  // Send message
   // -------------------------
   async function sendMessage() {
     if (!input.trim()) return;
 
-    // Auto-refresh location
-    await new Promise<void>((resolve) => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setLat(pos.coords.latitude);
-          setLon(pos.coords.longitude);
-          resolve();
-        },
-        () => resolve()
-      );
-    });
-
     setMessages((prev) => [...prev, { role: "user", text: input }]);
 
+    // 1️⃣ Ask Gemini if the message contains a city
+    let extractedCity = "";
     try {
+      const cityRes = await fetch("/api/extract-city", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: input }),
+      });
+
+      const cityData = await cityRes.json();
+      extractedCity = cityData.city || "";
+    } catch {
+      extractedCity = "";
+    }
+
+    const sendLocation = extractedCity === "";
+
+    // 2️⃣ If no city extracted → use GPS
+    if (sendLocation && navigator.geolocation) {
+      await new Promise<void>((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            setLat(pos.coords.latitude);
+            setLon(pos.coords.longitude);
+            resolve();
+          },
+          () => resolve()
+        );
+      });
+    }
+
+    try {
+      // 3️⃣ Prepare body based on city detection
+      const body = sendLocation
+        ? { message: input, lat, lon, theme } // No city → use GPS
+        : { message: input, theme }; // City found → backend will use city
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: input, lat, lon, theme }),
+        body: JSON.stringify(body),
       });
 
       const raw = await res.text();
-      let data = JSON.parse(raw);
+      const data = JSON.parse(raw);
 
-      setMessages((prev) => [...prev, { role: "bot", text: data.reply }]);
-      speakJA(data.reply);
+      const botReply = data.reply ?? "No response";
+
+      setMessages((prev) => [...prev, { role: "bot", text: botReply }]);
+      speakJA(botReply);
     } catch (err) {
       setMessages((prev) => [
         ...prev,
@@ -90,24 +118,49 @@ export default function Home() {
     setInput("");
   }
 
+  // -------------------------
+  // UI
+  // -------------------------
   return (
     <main style={{ padding: 20, maxWidth: 600, margin: "0 auto" }}>
-      <h1>🌤️ Weather + Gemini Voice Chatbot</h1>
+      <h1 style={{ textAlign: "center", marginBottom: 20 }}>
+        🌤️ Weather + Gemini Voice Chatbot
+      </h1>
 
-      {/* Voice Input Component */}
+      {/* Voice Input */}
       <VoiceInput onResult={(text) => setInput(text)} />
 
-      {/* Get Location Button */}
-      <button onClick={getLocation} style={{ marginTop: 10 }}>
+      {/* Get Location */}
+      <button
+        onClick={getLocation}
+        style={{
+          marginTop: 10,
+          padding: "10px 14px",
+          borderRadius: 8,
+          border: "none",
+          background: "#4A90E2",
+          color: "white",
+          cursor: "pointer",
+        }}
+      >
         📍 Get My Location
       </button>
+
+      {/* Theme Selector */}
       <div style={{ marginTop: 20 }}>
-        <label style={{ marginRight: 10 }}>Select Theme:</label>
+        <label style={{ marginRight: 10, fontWeight: 600 }}>
+          Select Theme:
+        </label>
 
         <select
           value={theme}
           onChange={(e) => setTheme(e.target.value)}
-          style={{ padding: 8 }}
+          style={{
+            padding: 10,
+            borderRadius: 6,
+            border: "1px solid #ccc",
+            width: "50%",
+          }}
         >
           <option value="general">General</option>
           <option value="travel">Travel</option>
@@ -127,14 +180,26 @@ export default function Home() {
           placeholder="質問を書いてください…"
           style={{
             padding: 10,
-            width: "75%",
-            marginRight: 8,
+            width: "70%",
             borderRadius: 6,
             border: "1px solid #ccc",
+            marginRight: 8,
           }}
         />
 
-        <button onClick={sendMessage}>Send</button>
+        <button
+          onClick={sendMessage}
+          style={{
+            padding: "10px 18px",
+            borderRadius: 6,
+            border: "none",
+            background: "#28a745",
+            color: "white",
+            cursor: "pointer",
+          }}
+        >
+          Send
+        </button>
       </div>
 
       {/* Chat Bubbles */}
@@ -144,11 +209,12 @@ export default function Home() {
             key={i}
             style={{
               padding: "10px 14px",
-              margin: "8px 0",
+              margin: "10px 0",
               maxWidth: "75%",
               borderRadius: 10,
-              background: m.role === "user" ? "#DCF8C6" : "#E8E8E8",
+              background: m.role === "user" ? "#DCF8C6" : "#F1F1F1",
               marginLeft: m.role === "user" ? "auto" : "0",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
               whiteSpace: "pre-wrap",
             }}
           >
