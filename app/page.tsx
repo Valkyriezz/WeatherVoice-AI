@@ -1,38 +1,38 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import VoiceInput from "./components/VoiceInput";
-
-type ChatMessage = {
-  role: "user" | "bot";
-  text: string;
-};
+import Chat, { ChatMessage } from "./components/Chat";
+import ChatInput from "./components/ChatInput";
 
 export default function Home() {
-  const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // Location
   const [lat, setLat] = useState<number>(35.6895);
   const [lon, setLon] = useState<number>(139.6917);
   const [locationName, setLocationName] = useState<string>("Tokyo");
 
+  // Theme
   const [theme, setTheme] = useState<string>("general");
 
-  // Auto-scroll
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  // Theme icons
+  const themeIcons: Record<string, string> = {
+    general: "🌍",
+    travel: "✈️",
+    fashion: "👗",
+    sports: "⚽",
+    music: "🎵",
+    agriculture: "🌾",
+    outings: "🏞️",
+  };
 
   // Japanese TTS
   function speakJA(text: string) {
     if (typeof window === "undefined") return;
-
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = "ja-JP";
-
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utter);
   }
@@ -56,7 +56,7 @@ export default function Home() {
   }
 
   // Send Message
-  async function sendMessage(): Promise<void> {
+  async function sendMessage(input: string): Promise<void> {
     if (!input.trim() || isLoading) return;
 
     setMessages((prev) => [...prev, { role: "user", text: input }]);
@@ -85,7 +85,6 @@ export default function Home() {
             },
           ]);
           setIsLoading(false);
-          setInput("");
           return;
         }
 
@@ -124,7 +123,6 @@ export default function Home() {
           const retryData = await retryRes.json();
 
           if (retryData.needsLocation) {
-            // Still needs location? Something went wrong
             throw new Error("位置情報を処理できませんでした");
           }
 
@@ -134,7 +132,6 @@ export default function Home() {
 
           const botReply: string = retryData.reply ?? "No response";
           setMessages((prev) => [...prev, { role: "bot", text: botReply }]);
-          speakJA(botReply);
         } catch (geoError: any) {
           console.error("Location error:", geoError);
           setMessages((prev) => [
@@ -156,7 +153,6 @@ export default function Home() {
       } else {
         const botReply: string = data.reply ?? "No response";
         setMessages((prev) => [...prev, { role: "bot", text: botReply }]);
-        speakJA(botReply);
       }
     } catch (error) {
       console.error("API request failed:", error);
@@ -167,25 +163,7 @@ export default function Home() {
     }
 
     setIsLoading(false);
-    setInput("");
   }
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
-  // Theme icons
-  const themeIcons: Record<string, string> = {
-    general: "🌍",
-    travel: "✈️",
-    fashion: "👗",
-    sports: "⚽",
-    music: "🎵",
-    agriculture: "🌾",
-    outings: "🏞️",
-  };
 
   return (
     <div
@@ -200,12 +178,7 @@ export default function Home() {
       }}
     >
       {/* Header */}
-      <div
-        style={{
-          padding: "24px",
-          color: "white",
-        }}
-      >
+      <div style={{ padding: "24px", color: "white" }}>
         <h1
           style={{
             margin: 0,
@@ -237,7 +210,7 @@ export default function Home() {
           alignItems: "center",
         }}
       >
-        <VoiceInput onResult={(text) => setInput(text)} />
+        <VoiceInput onResult={(text) => sendMessage(text)} />
 
         <button
           onClick={getLocation}
@@ -283,139 +256,11 @@ export default function Home() {
         </select>
       </div>
 
-      {/* Messages Area */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: "24px",
-          background: "#ffffff",
-        }}
-      >
-        {messages.length === 0 && (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "60px 20px",
-              color: "#6c757d",
-            }}
-          >
-            <div style={{ fontSize: "64px", marginBottom: "16px" }}>💬</div>
-            <h3 style={{ margin: "0 0 8px 0", color: "#495057" }}>
-              Start a conversation
-            </h3>
-            <p style={{ margin: 0, fontSize: "14px" }}>
-              Ask me about weather in any city or use your current location
-            </p>
-          </div>
-        )}
-
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            style={{
-              display: "flex",
-              justifyContent: m.role === "user" ? "flex-end" : "flex-start",
-              marginBottom: "16px",
-            }}
-          >
-            <div
-              style={{
-                padding: "12px 18px",
-                maxWidth: "70%",
-                borderRadius:
-                  m.role === "user"
-                    ? "18px 18px 4px 18px"
-                    : "18px 18px 18px 4px",
-                background:
-                  m.role === "user"
-                    ? "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
-                    : "#f8f9fa",
-                color: m.role === "user" ? "white" : "#212529",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                fontSize: "15px",
-                lineHeight: "1.5",
-              }}
-            >
-              {m.text}
-            </div>
-          </div>
-        ))}
-
-        {isLoading && (
-          <div style={{ display: "flex", marginBottom: "16px" }}>
-            <div
-              style={{
-                padding: "12px 18px",
-                borderRadius: "18px 18px 18px 4px",
-                background: "#f8f9fa",
-                display: "flex",
-                gap: "6px",
-              }}
-            >
-              <div className="dot" />
-              <div className="dot" />
-              <div className="dot" />
-            </div>
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
+      {/* Chat Area */}
+      <Chat messages={messages} isLoading={isLoading} onSpeak={speakJA} />
 
       {/* Input Area */}
-      <div
-        style={{
-          padding: "20px 24px",
-          background: "#f8f9fa",
-          borderTop: "1px solid #e9ecef",
-        }}
-      >
-        <div style={{ display: "flex", gap: "12px" }}>
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="質問を書いてください…"
-            rows={1}
-            disabled={isLoading}
-            style={{
-              flex: 1,
-              padding: "14px 18px",
-              borderRadius: "16px",
-              border: "2px solid #e9ecef",
-              fontSize: "15px",
-              resize: "none",
-              outline: "none",
-              maxHeight: "120px",
-            }}
-          />
-
-          <button
-            onClick={sendMessage}
-            disabled={isLoading || !input.trim()}
-            className="hover-scale"
-            style={{
-              padding: "14px 24px",
-              borderRadius: "16px",
-              border: "none",
-              background:
-                isLoading || !input.trim()
-                  ? "#ccc"
-                  : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-              color: "white",
-              cursor: isLoading || !input.trim() ? "not-allowed" : "pointer",
-              fontSize: "15px",
-              fontWeight: 700,
-              boxShadow: "0 4px 12px rgba(102, 126, 234, 0.4)",
-            }}
-          >
-            {isLoading ? "⏳" : "Send"}
-          </button>
-        </div>
-      </div>
+      <ChatInput onSend={sendMessage} isLoading={isLoading} />
 
       <style jsx>{`
         .hover-scale {
@@ -423,31 +268,6 @@ export default function Home() {
         }
         .hover-scale:hover {
           transform: scale(1.05);
-        }
-
-        .dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: #667eea;
-          animation: bounce 1.4s infinite ease-in-out both;
-        }
-        .dot:nth-child(2) {
-          animation-delay: 0.16s;
-        }
-        .dot:nth-child(3) {
-          animation-delay: 0.32s;
-        }
-
-        @keyframes bounce {
-          0%,
-          80%,
-          100% {
-            transform: scale(0);
-          }
-          40% {
-            transform: scale(1);
-          }
         }
       `}</style>
     </div>
