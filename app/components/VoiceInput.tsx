@@ -4,22 +4,22 @@ import { useState, useEffect } from "react";
 
 interface VoiceInputProps {
   onResult: (text: string) => void;
+  lang: "en" | "ja";
 }
 
-export default function VoiceInput({ onResult }: VoiceInputProps) {
+export default function VoiceInput({ onResult, lang }: VoiceInputProps) {
   const [isListening, setIsListening] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    // Mark component as mounted
     setIsMounted(true);
 
-    // Check if speech recognition is supported
     if (typeof window !== "undefined") {
       const SpeechRecognition =
         (window as any).SpeechRecognition ||
         (window as any).webkitSpeechRecognition;
+
       setIsSupported(!!SpeechRecognition);
     }
   }, []);
@@ -37,7 +37,7 @@ export default function VoiceInput({ onResult }: VoiceInputProps) {
     }
 
     const recognition = new SpeechRecognition();
-    recognition.lang = "ja-JP"; // Japanese language
+    recognition.lang = lang === "ja" ? "ja-JP" : "en-US"; // ✅ Dynamic language
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
 
@@ -53,7 +53,13 @@ export default function VoiceInput({ onResult }: VoiceInputProps) {
 
     recognition.onerror = (event: any) => {
       console.error("Speech recognition error:", event.error);
-      alert(`音声認識エラー: ${event.error}`);
+
+      const message =
+        lang === "ja"
+          ? `音声認識エラー: ${event.error}`
+          : `Speech recognition error: ${event.error}`;
+
+      alert(message);
       setIsListening(false);
     };
 
@@ -64,34 +70,19 @@ export default function VoiceInput({ onResult }: VoiceInputProps) {
     recognition.start();
   };
 
-  // Don't render anything until mounted (prevents hydration mismatch)
+  // Prevent hydration issues
   if (!isMounted) {
     return (
       <button
         disabled
-        style={{
-          padding: "10px 16px",
-          borderRadius: "12px",
-          border: "none",
-          background: "#ccc",
-          color: "white",
-          cursor: "not-allowed",
-          fontSize: "14px",
-          fontWeight: 600,
-          display: "flex",
-          alignItems: "center",
-          gap: "6px",
-        }}
+        className="px-4 py-2 rounded-xl bg-gray-400 text-white font-semibold"
       >
         🎤 Voice
       </button>
     );
   }
 
-  // Don't render if not supported
-  if (!isSupported) {
-    return null;
-  }
+  if (!isSupported) return null;
 
   return (
     <button
@@ -118,7 +109,8 @@ export default function VoiceInput({ onResult }: VoiceInputProps) {
     >
       {isListening ? (
         <>
-          <span className="pulse">🎤</span> Listening...
+          <span className="pulse">🎤</span>{" "}
+          {lang === "ja" ? "聞いています…" : "Listening..."}
         </>
       ) : (
         <>🎤 Voice</>

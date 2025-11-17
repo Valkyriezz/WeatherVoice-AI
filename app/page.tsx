@@ -17,30 +17,69 @@ export default function Home() {
   // Theme
   const [theme, setTheme] = useState<string>("general");
 
-  // Theme icons
+  // Language
+  const [lang, setLang] = useState<"en" | "ja">("en");
+
   const themeIcons: Record<string, string> = {
     general: "🌍",
-    travel: "✈️",
+    travel: "✈",
     fashion: "👗",
     sports: "⚽",
     music: "🎵",
     agriculture: "🌾",
-    outings: "🏞️",
+    outings: "🏞",
   };
 
-  // Japanese TTS
-  function speakJA(text: string) {
-    if (typeof window === "undefined") return;
+  const translations = {
+    en: {
+      appTitle: "Weather Assistant",
+      locationUpdated: "Location updated!",
+      geoNotSupported: "Geolocation not supported.",
+      geoFailedPrefix: "Failed to get location: ",
+      locationBtn: "📍 Location",
+      startTitle: "Start a conversation",
+      startSub: "Ask me about weather in any city or use your current location",
+      speakBtn: "🔊 Speak",
+      inputPlaceholder: "Type your question…",
+      sendLabel: "Send",
+      locationPromptBot:
+        "Geolocation not supported. Please provide a city name.",
+      locationErrorBotPrefix: "Failed to get location: ",
+      langLabel: "EN",
+    },
+    ja: {
+      appTitle: "天気アシスタント",
+      locationUpdated: "位置情報を更新しました！",
+      geoNotSupported: "位置情報がサポートされていません。",
+      geoFailedPrefix: "位置情報の取得に失敗しました: ",
+      locationBtn: "📍 位置情報",
+      startTitle: "会話を始めましょう",
+      startSub: "都市の天気について聞くか現在地を使用してください",
+      speakBtn: "🔊 再生",
+      inputPlaceholder: "質問を書いてください…",
+      sendLabel: "送信",
+      locationPromptBot:
+        "位置情報がサポートされていません。都市名を指定してください。",
+      locationErrorBotPrefix: "位置情報の取得に失敗しました: ",
+      langLabel: "日本語",
+    },
+  };
+
+  // TTS
+  function speak(text: string) {
+    if (typeof window === "undefined" || !text) return;
+
     const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = "ja-JP";
+    utter.lang = lang === "ja" ? "ja-JP" : "en-US";
+
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utter);
   }
 
-  // Get Location
+  // Location button
   function getLocation() {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      alert("Geolocation not supported.");
+    if (!navigator?.geolocation) {
+      alert(translations[lang].geoNotSupported);
       return;
     }
 
@@ -48,14 +87,14 @@ export default function Home() {
       (pos) => {
         setLat(pos.coords.latitude);
         setLon(pos.coords.longitude);
-        setLocationName("Current Location");
-        alert("Location updated!");
+        setLocationName(lang === "ja" ? "現在地" : "Current Location");
+        alert(translations[lang].locationUpdated);
       },
-      (err) => alert("Failed to get location: " + err.message)
+      (err) => alert(translations[lang].geoFailedPrefix + err.message)
     );
   }
 
-  // Send Message
+  // Send user message
   async function sendMessage(input: string): Promise<void> {
     if (!input.trim() || isLoading) return;
 
@@ -63,32 +102,26 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      // First attempt without location
+      // First API request without location
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: input, theme }),
+        body: JSON.stringify({ message: input, theme, lang }),
       });
 
       const data = await res.json();
 
-      // Check if location is needed
+      // If backend needs location
       if (data.needsLocation) {
-        console.log("Location needed, requesting permission...");
-
         if (!navigator?.geolocation) {
           setMessages((prev) => [
             ...prev,
-            {
-              role: "bot",
-              text: "位置情報がサポートされていません。都市名を指定してください。",
-            },
+            { role: "bot", text: translations[lang].locationPromptBot },
           ]);
           setIsLoading(false);
           return;
         }
 
-        // Request location
         try {
           const position = await new Promise<GeolocationPosition>(
             (resolve, reject) => {
@@ -102,9 +135,6 @@ export default function Home() {
           const currentLat = position.coords.latitude;
           const currentLon = position.coords.longitude;
 
-          console.log(`Location obtained: ${currentLat}, ${currentLon}`);
-
-          // Update state for future use
           setLat(currentLat);
           setLon(currentLon);
 
@@ -115,6 +145,7 @@ export default function Home() {
             body: JSON.stringify({
               message: input,
               theme,
+              lang,
               lat: currentLat,
               lon: currentLon,
             }),
@@ -122,43 +153,45 @@ export default function Home() {
 
           const retryData = await retryRes.json();
 
-          if (retryData.needsLocation) {
-            throw new Error("位置情報を処理できませんでした");
-          }
-
           if (retryData.error) {
             throw new Error(retryData.error);
           }
 
-          const botReply: string = retryData.reply ?? "No response";
-          setMessages((prev) => [...prev, { role: "bot", text: botReply }]);
+          setMessages((prev) => [
+            ...prev,
+            { role: "bot", text: retryData.reply ?? "No response" },
+          ]);
         } catch (geoError: any) {
-          console.error("Location error:", geoError);
           setMessages((prev) => [
             ...prev,
             {
               role: "bot",
-              text: `位置情報の取得に失敗しました: ${
-                geoError.message || "不明なエラー"
-              }。都市名を指定してください。`,
+              text:
+                translations[lang].locationErrorBotPrefix +
+                (geoError.message || "Unknown error") +
+                (lang === "ja"
+                  ? "。都市名を指定してください。"
+                  : ". Please provide a city name."),
             },
           ]);
         }
-      } else if (data.error) {
-        console.error("API returned error:", data.error);
+      } else {
+        // Normal response
         setMessages((prev) => [
           ...prev,
-          { role: "bot", text: `エラー: ${data.error}` },
+          { role: "bot", text: data.reply ?? "No response" },
         ]);
-      } else {
-        const botReply: string = data.reply ?? "No response";
-        setMessages((prev) => [...prev, { role: "bot", text: botReply }]);
       }
     } catch (error) {
-      console.error("API request failed:", error);
       setMessages((prev) => [
         ...prev,
-        { role: "bot", text: "❌ Request failed. Check server terminal." },
+        {
+          role: "bot",
+          text:
+            lang === "ja"
+              ? "❌ リクエストに失敗しました。サーバーを確認してください。"
+              : "❌ Request failed. Check server terminal.",
+        },
       ]);
     }
 
@@ -189,8 +222,8 @@ export default function Home() {
             gap: "12px",
           }}
         >
-          <span style={{ fontSize: "36px" }}>🌤️</span>
-          Weather Assistant
+          <span style={{ fontSize: "36px" }}>🌤</span>
+          {translations[lang].appTitle}
         </h1>
         <p style={{ margin: "8px 0 0 0", opacity: 0.9, fontSize: "14px" }}>
           📍 {locationName} • {themeIcons[theme]}{" "}
@@ -198,7 +231,7 @@ export default function Home() {
         </p>
       </div>
 
-      {/* Controls Bar */}
+      {/* Controls */}
       <div
         style={{
           padding: "16px 24px",
@@ -210,11 +243,10 @@ export default function Home() {
           alignItems: "center",
         }}
       >
-        <VoiceInput onResult={(text) => sendMessage(text)} />
+        <VoiceInput onResult={(text) => sendMessage(text)} lang={lang} />
 
         <button
           onClick={getLocation}
-          className="hover-scale"
           style={{
             padding: "10px 16px",
             borderRadius: "12px",
@@ -224,12 +256,9 @@ export default function Home() {
             cursor: "pointer",
             fontSize: "14px",
             fontWeight: 600,
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
           }}
         >
-          📍 Location
+          {translations[lang].locationBtn}
         </button>
 
         <select
@@ -247,29 +276,48 @@ export default function Home() {
           }}
         >
           <option value="general">🌍 General</option>
-          <option value="travel">✈️ Travel</option>
+          <option value="travel">✈ Travel</option>
           <option value="fashion">👗 Fashion</option>
           <option value="sports">⚽ Sports</option>
           <option value="music">🎵 Music</option>
           <option value="agriculture">🌾 Agriculture</option>
-          <option value="outings">🏞️ Outings</option>
+          <option value="outings">🏞 Outings</option>
         </select>
+
+        <div style={{ marginLeft: "auto" }}>
+          <button
+            onClick={() => setLang((l) => (l === "en" ? "ja" : "en"))}
+            style={{
+              padding: "8px 12px",
+              borderRadius: "10px",
+              border: "none",
+              background: "#222",
+              color: "white",
+              cursor: "pointer",
+              fontSize: "13px",
+              fontWeight: 700,
+            }}
+          >
+            {lang === "en" ? "EN" : "日本語"}
+          </button>
+        </div>
       </div>
 
-      {/* Chat Area */}
-      <Chat messages={messages} isLoading={isLoading} onSpeak={speakJA} />
+      {/* Chat */}
+      <Chat
+        messages={messages}
+        isLoading={isLoading}
+        onSpeak={speak}
+        translations={translations[lang]}
+      />
 
-      {/* Input Area */}
-      <ChatInput onSend={sendMessage} isLoading={isLoading} />
-
-      <style jsx>{`
-        .hover-scale {
-          transition: transform 0.2s ease;
-        }
-        .hover-scale:hover {
-          transform: scale(1.05);
-        }
-      `}</style>
+      {/* Input */}
+      <ChatInput
+        onSend={sendMessage}
+        isLoading={isLoading}
+        placeholder={translations[lang].inputPlaceholder}
+        sendLabel={translations[lang].sendLabel}
+      />
     </div>
   );
 }

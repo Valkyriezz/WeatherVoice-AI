@@ -11,9 +11,19 @@ interface ChatProps {
   messages: ChatMessage[];
   isLoading: boolean;
   onSpeak: (text: string) => void;
+  translations: {
+    startTitle: string;
+    startSub: string;
+    speakBtn: string;
+  };
 }
 
-export default function Chat({ messages, isLoading, onSpeak }: ChatProps) {
+export default function Chat({
+  messages,
+  isLoading,
+  onSpeak,
+  translations,
+}: ChatProps) {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // Auto-scroll to bottom when messages change
@@ -41,11 +51,9 @@ export default function Chat({ messages, isLoading, onSpeak }: ChatProps) {
         >
           <div style={{ fontSize: "64px", marginBottom: "16px" }}>💬</div>
           <h3 style={{ margin: "0 0 8px 0", color: "#495057" }}>
-            Start a conversation
+            {translations.startTitle}
           </h3>
-          <p style={{ margin: 0, fontSize: "14px" }}>
-            Ask me about weather in any city or use your current location
-          </p>
+          <p style={{ margin: 0, fontSize: "14px" }}>{translations.startSub}</p>
         </div>
       )}
 
@@ -110,7 +118,7 @@ export default function Chat({ messages, isLoading, onSpeak }: ChatProps) {
                   gap: "6px",
                 }}
               >
-                🔊 Speak
+                {translations.speakBtn}
               </button>
             )}
           </div>
